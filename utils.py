@@ -1,6 +1,7 @@
 import requests
 import re
 import pandas as pd
+import time
 import yfinance as yf
 import numpy as np
 from datetime import datetime, timedelta
