@@ -8,6 +8,8 @@ PUB_KEY = 'PK46ASAR06YRWR9CLKHK'
 BASE_URL = 'https://paper-api.alpaca.markets'
 api = tradeapi.REST(key_id= PUB_KEY, secret_key=SEC_KEY, base_url=BASE_URL)
 
+# sizes = {tick: get_batch(tick)[1] for tick in [s[:-7] for s in os.listdir("./data/ETFs")]}
+
 symb = "AAPL"
 pos_held = False
 hours_to_test = 2
