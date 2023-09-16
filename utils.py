@@ -19,6 +19,7 @@ from sklearn.preprocessing import RobustScaler
 from pickle import dump
 import tensorflow as tf
 from tensorflow import keras
+from tensorflow.keras.callbacks import Callback
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest, GetAssetsRequest
 from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce, AssetClass
@@ -100,16 +101,16 @@ def LSTM_model(X_train, y_train):
     model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['acc'])
     return model
 
-def fit_evaluate_LSTM(X_train, y_train, X_test, y_test, model, name, epochs=100):
+def fit_evaluate_LSTM(X_train, y_train, X_test, y_test, model, name, epochs=20):
     """
     Fit training data for 20 epochs. For a final model please change this to at least 100 epochs to ensure it converges to maximum
     possible accuracy. Also does inference on test set, and uses the output and the ground truth to calculate accuracy and plot confusion.
     Also plots training and validation loss as a function of number of iterations.
     """
     checkpoint_filepath = f'./models/tmp/{name}_checkpoint'
-    model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_filepath, save_weights_only=True, monitor='val_accuracy', mode='max', save_best_only=True)
+    callbacks = [SaveBestModel(filepath=checkpoint_filepath)]
 
-    history = model.fit(X_train, y_train, epochs=epochs, batch_size=64, validation_split=0.1, callbacks=[model_checkpoint_callback])
+    history = model.fit(X_train, y_train, epochs=epochs, batch_size=64, validation_split=0.1, callbacks=callbacks)
     model.load_weights(checkpoint_filepath)
     loss, accuracy = model.evaluate(X_test, y_test)
     y_pred = model.predict(X_test)
@@ -227,3 +228,16 @@ def get_signal():
 
     if price_pred > price_curr: return "long"
     else: return "short"
+
+class SaveBestModel(Callback):
+    def __init__(self, filepath):
+        super(SaveBestModel, self).__init__()
+        self.filepath = filepath
+        self.best_acc = 0.
+
+    def on_epoch_end(self, epoch, logs=None):
+        val_acc = logs['val_acc']
+        if val_acc > self.best_acc:
+            self.best_acc = val_acc
+            self.model.save(self.filepath, overwrite=True)
+            print(f"Model saved with validation accuracy: {val_acc:.4f}")
