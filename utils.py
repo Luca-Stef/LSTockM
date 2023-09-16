@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, accuracy_score, ConfusionMatrixDisplay
 from sklearn.preprocessing import RobustScaler
-from pickle import dump
+from pickle import dump, load
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.callbacks import Callback
@@ -47,10 +47,10 @@ def get_batch(fund_ticker):
     if not etf_comp: 
         print(f"Fund {fund_ticker} not found")
         return 0, 0
-
+    
     print(f"Fetching {fund_ticker}")
-    etf_price = yf.download(fund_ticker, progress=False)["Close"]
-    stock_prices = yf.download(etf_comp, progress=False)["Close"]
+    etf_price = yf.download(fund_ticker, progress=False)[["Open", "High", "Low", "Close"]].mean(axis=1)
+    stock_prices = yf.download(etf_comp, progress=False)[["Open", "High", "Low", "Close"]]
     
     # Weakest link approach
     """max_window = np.array([stock_prices[c]["Close"].shape for c in etf_comp if stock_prices[c]["Close"].shape[0]]).min()
@@ -69,7 +69,7 @@ def get_batch(fund_ticker):
 
     return X, y
 
-def create_windows(X, y, window_length=20, lookahead=2, shift=1, sample_rate=1):
+def create_windows(X, y, window_length=20, lookahead=10, shift=1, sample_rate=1):
     """
     Create windows of length window_length. shift is the interval between each window and sample rate is the interval 
     between each reading within a window. For example you can use a window of 60 readings but downsample by 2 so you 
@@ -78,12 +78,12 @@ def create_windows(X, y, window_length=20, lookahead=2, shift=1, sample_rate=1):
     """
     Xs, ys = [], []    
     
-    for i in range(0, len(X) - window_length - lookahead, shift):
+    for i in range(0, len(X) - window_length - lookahead + 5, shift):
 
         Xs.append(X[i:i + window_length:sample_rate])
-        ys.append(y[i + window_length - 1:i + window_length + lookahead - 1])
+        ys.append(y[i + window_length - 5:i + window_length + lookahead - 5])
     
-    ys = np.where(np.array(ys)[:,0] < np.array(ys)[:,1], 0, 1)
+    ys = np.where(np.mean(np.array(ys)[:,:5], axis=1) < np.mean(np.array(ys)[:,5:], axis=1), 0, 1)
     return np.array(Xs), ys.reshape(*ys.shape, 1)
 
 def LSTM_model(X_train, y_train):
@@ -97,21 +97,22 @@ def LSTM_model(X_train, y_train):
     model.add(keras.layers.Dropout(rate=0.5))
     model.add(keras.layers.Dense(units=100, activation='relu'))
     model.add(keras.layers.Dense(units=100, activation='relu'))
+    model.add(keras.layers.Dropout(rate=0.5))
     model.add(keras.layers.Dense(y_train.shape[1], activation='sigmoid'))
-    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['acc'])
+    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=["acc"])
     return model
 
-def fit_evaluate_LSTM(X_train, y_train, X_test, y_test, model, name, epochs=20):
+def fit_evaluate_LSTM(X_train, y_train, X_test, y_test, model, name, epochs=100):
     """
     Fit training data for 20 epochs. For a final model please change this to at least 100 epochs to ensure it converges to maximum
     possible accuracy. Also does inference on test set, and uses the output and the ground truth to calculate accuracy and plot confusion.
     Also plots training and validation loss as a function of number of iterations.
     """
-    checkpoint_filepath = f'./models/tmp/{name}_checkpoint'
-    callbacks = [SaveBestModel(filepath=checkpoint_filepath)]
+    #checkpoint_filepath = f'./models/tmp/{name}_checkpoint'
+    #model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_filepath, save_weights_only=True, mode='max', save_best_only=True)
 
-    history = model.fit(X_train, y_train, epochs=epochs, batch_size=64, validation_split=0.1, callbacks=callbacks)
-    model.load_weights(checkpoint_filepath)
+    history = model.fit(X_train, y_train, epochs=epochs, batch_size=64, validation_split=0.1)
+    #model.load_weights(checkpoint_filepath)
     loss, accuracy = model.evaluate(X_test, y_test)
     y_pred = model.predict(X_test)
 
@@ -193,7 +194,7 @@ def adjust_positions():
     for position in positions:
 
         # acquire a long position if price will rise
-        if get_signal() == "long":
+        if get_signal(position) == "long":
             if position.side.value == "short":
                 close_order = trading_client.close_position(symbol_or_asset_id=position.symbol)
                 time.sleep(10) # wait for order to fill
@@ -206,38 +207,16 @@ def adjust_positions():
                 time.sleep(10)
                 market_order = trading_client.submit_order(order_data=MarketOrderRequest(symbol=position.symbol, qty=abs(float(position.qty)), side=OrderSide.SELL, time_in_force=TimeInForce.DAY))
 
-def get_signal():
+def get_signal(position):
 
     # Get all models and comps here, and check if funds have changed etc
+    scaler = load(open(f'models/{position.symbol.lower()}_scaler.pkl', 'rb'))
     model = tf.keras.models.load_model(f'models/{position.symbol.lower()}')
     current_comp = get_comp(position.symbol)
-
+    
     # Get new forecast
-    input_data = np.nan_to_num(yf.download(current_comp, progress=False).iloc[-20:].Close.to_numpy())
-    price_pred = model.predict(input_data.reshape(1,*input_data.shape))[0,0]
-    price_curr = yf.download(position.symbol, progress=False).Close[-1]
+    input_data = np.nan_to_num(yf.download(current_comp, progress=False).iloc[-20:][["Open", "High", "Low", "Close"]].to_numpy())
+    input_data = scaler.transform(input_data)
+    prediction = np.round(model.predict(input_data.reshape(1,*input_data.shape))[0,0])
 
-    max_idx = 0
-    min_idx = 2
-
-    if forecast[max_idx] > forecast[-1]:
-        pass
-
-    if forecast[min_idx] < forecast[-1]:
-        pass
-
-    if price_pred > price_curr: return "long"
-    else: return "short"
-
-class SaveBestModel(Callback):
-    def __init__(self, filepath):
-        super(SaveBestModel, self).__init__()
-        self.filepath = filepath
-        self.best_acc = 0.
-
-    def on_epoch_end(self, epoch, logs=None):
-        val_acc = logs['val_acc']
-        if val_acc > self.best_acc:
-            self.best_acc = val_acc
-            self.model.save(self.filepath, overwrite=True)
-            print(f"Model saved with validation accuracy: {val_acc:.4f}")
+    return "short" if prediction else "long"

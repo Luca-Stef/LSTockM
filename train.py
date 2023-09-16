@@ -18,5 +18,4 @@ if isinstance(X_raw, np.ndarray):
 
     model = LSTM_model(X_train, y_train)
     fit_evaluate_LSTM(X_train, y_train, X_test, y_test, model, symbol)
-    breakpoint()
-    #model.save(f'models/{symbol}')
+    model.save(f'models/{symbol}')
