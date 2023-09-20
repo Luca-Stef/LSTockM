@@ -1,3 +1,3 @@
 # LSTockM
 
-Some very basic stock price prediction with a recurrent neural network :D
+Cloud based stock trading algorithm with neural network for price prediction.
