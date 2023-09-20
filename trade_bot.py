@@ -1,7 +1,11 @@
-from utils import adjust_positions, 
+from trade_utils import * 
 
-if not trading_client.get_clock().is_open: print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: Market closed, sleeping.')
+if trading_client.get_clock().is_open:
 
-adjust_positions()
+    adjust_positions()
 
-print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: Done for the day, sleeping until tomorrow')
+else:
+
+    print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: Market closed.')
+
+print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: Done for the day, sleeping until tomorrow.')

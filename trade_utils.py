@@ -1,6 +1,7 @@
 import datetime
 import time
 import numpy as np
+import secrets
 import yfinance as yf
 import requests
 import re
@@ -13,10 +14,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest, GetAssetsRequest
-from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce, AssetClass
+from alpaca.trading.enums import OrderSide, TimeInForce, AssetClass
 
-SEC_KEY = 'R6cEuW4cGnVxi50ZHBIOFEj07Z1cxXMalMIAPkI0' 
-PUB_KEY = 'PK46ASAR06YRWR9CLKHK'
 trading_client = TradingClient(PUB_KEY, SEC_KEY, paper=True)
 
 def get_comp(ticker, url="https://www.zacks.com/funds/etf/{}/holding"):
@@ -39,18 +38,26 @@ def adjust_positions():
         # acquire a long position if price will rise
         if get_signal(position) == "long":
             if position.side.value == "short":
-                print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: Switching {position.symbol} to long')
                 close_order = trading_client.close_position(symbol_or_asset_id=position.symbol)
-                time.sleep(10) # wait for order to fill
+                wait_for_order()
                 market_order = trading_client.submit_order(order_data=MarketOrderRequest(symbol=position.symbol, qty=abs(float(position.qty)), side=OrderSide.BUY, time_in_force=TimeInForce.DAY))
+                print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: Acquired long position for {position.symbol}')
+                return
+            else:
+                print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: Holding long position for {position.symbol}')
+                return
 
         # acquire a short position if price will drop
         else: 
             if position.side.value == "long": 
-                print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: Switching {position.symbol} to short')
                 close_order = trading_client.close_position(symbol_or_asset_id=position.symbol)
-                time.sleep(10)
+                wait_for_order()
                 market_order = trading_client.submit_order(order_data=MarketOrderRequest(symbol=position.symbol, qty=abs(float(position.qty)), side=OrderSide.SELL, time_in_force=TimeInForce.DAY))
+                print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: Acquired short position for {position.symbol}')
+                return
+            else:
+                print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: Holding short position for {position.symbol}')
+                return
 
 def get_signal(position):
 
@@ -66,15 +73,20 @@ def get_signal(position):
 
     return "short" if prediction else "long"
 
+def wait_for_order():
+    for _ in range(5): # wait for order to fill
+        time.sleep(5)
+        if not trading_client.get_orders(): break
+
+
 def initialise_positions():
     pass
 
-def notify(message):
+def notify(message, receiver_email = 'lucastu2013@gmail.com'):
 
     # Email configuration
     sender_email = 'lucastu2013@gmail.com'
     sender_password = 'pbfonhdbrsrrqqvp'  # Use an App Password if 2-factor authentication is enabled
-    receiver_email = 'lucastu2013@gmail.com'
     subject = "EC2 notification"
 
     # Create the email message
