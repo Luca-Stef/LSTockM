@@ -1,10 +1,12 @@
 import datetime
 import time
 import numpy as np
-import secrets
+from scrts import *
 import yfinance as yf
 import requests
 import re
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 from pickle import dump, load
 import smtplib

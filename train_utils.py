@@ -17,15 +17,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, accuracy_score, ConfusionMatrixDisplay
 from sklearn.preprocessing import RobustScaler
 from pickle import dump, load
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 from tensorflow import keras
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest, GetAssetsRequest
 from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce, AssetClass
-
-SEC_KEY = 'R6cEuW4cGnVxi50ZHBIOFEj07Z1cxXMalMIAPkI0' 
-PUB_KEY = 'PK46ASAR06YRWR9CLKHK'
-trading_client = TradingClient(PUB_KEY, SEC_KEY, paper=True)
 
 def get_comp(ticker, url="https://www.zacks.com/funds/etf/{}/holding"):
 
@@ -64,9 +61,8 @@ def get_batch(fund_ticker):
 
     scaler = RobustScaler().fit(X)
     X = scaler.transform(X)
-    dump(scaler, open(f'models/{fund_ticker}_scaler.pkl', 'wb'))
 
-    return X, y
+    return X, y, scaler
 
 def create_windows(X, y, window_length=20, lookahead=10, shift=1, sample_rate=1):
     """
@@ -101,17 +97,13 @@ def LSTM_model(X_train, y_train):
     model.compile(loss='binary_crossentropy', optimizer='adam', metrics=["acc"])
     return model
 
-def fit_evaluate_LSTM(X_train, y_train, X_test, y_test, model, name, epochs=100):
+def fit_evaluate_LSTM(X_train, y_train, X_test, y_test, model, name, epochs=20):
     """
     Fit training data for 20 epochs. For a final model please change this to at least 100 epochs to ensure it converges to maximum
     possible accuracy. Also does inference on test set, and uses the output and the ground truth to calculate accuracy and plot confusion.
     Also plots training and validation loss as a function of number of iterations.
     """
-    #checkpoint_filepath = f'./models/tmp/{name}_checkpoint'
-    #model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_filepath, save_weights_only=True, mode='max', save_best_only=True)
-
-    history = model.fit(X_train, y_train, epochs=epochs, batch_size=64, validation_split=0.1)
-    #model.load_weights(checkpoint_filepath)
+    history = model.fit(X_train, y_train, epochs=epochs, validation_split=0.1)
     loss, accuracy = model.evaluate(X_test, y_test)
     y_pred = model.predict(X_test)
 
@@ -120,104 +112,14 @@ def fit_evaluate_LSTM(X_train, y_train, X_test, y_test, model, name, epochs=100)
     plt.plot(history.history['val_loss'], label='test')
     plt.legend()
     plt.title(f"Final loss {loss}")
-    plt.savefig(f"figures/{name}_loss.png")
+    plt.savefig(f"figures/{name}_{loss}_loss.png")
     
     cm = confusion_matrix(y_test, np.round(y_pred))
     cm_display = ConfusionMatrixDisplay(confusion_matrix=cm)
     plt.figure()
     cm_display.plot()
     cm_display.ax_.set_title(f"Accuracy {accuracy}")
-    plt.savefig(f"figures/{name}_cm.png")
-    print(f"Trained, evaulated {name} model and saved figures at figures/{name}_loss.png\n")
+    plt.savefig(f"figures/{name}_{accuracy}_cm.png")
+    print(f"Final accuracy is {accuracy}. \nTrained, evaulated {name} model and saved figures at figures/{name}_loss.png\n")
 
-def notify(message):
-
-    # Email configuration
-    sender_email = 'lucastu2013@gmail.com'
-    sender_password = 'pbfonhdbrsrrqqvp'  # Use an App Password if 2-factor authentication is enabled
-    receiver_email = 'lucastu2013@gmail.com'
-    subject = "EC2 notification"
-
-    # Create the email message
-    msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = receiver_email
-    msg['Subject'] = subject
-    msg.attach(MIMEText(message, 'plain'))
-
-    # Connect to the SMTP server and send the email
-    try:
-        server = smtplib.SMTP('smtp.gmail.com', 587)  # For Gmail
-        server.starttls()  # Upgrade the connection to secure TLS
-        server.login(sender_email, sender_password)
-        server.sendmail(sender_email, receiver_email, msg.as_string())
-        server.quit()
-        print('Email sent successfully!')
-    except Exception as e:
-        print(f'Error: {str(e)}')
-
-def sleep_until(hour=15, minute=0, second=0):
-    
-    # Define the UK time zone
-    uk_timezone = pytz.timezone('Europe/London')
-
-    # Get the current time in UK time
-    current_time = datetime.datetime.now(uk_timezone)
-
-    # Calculate the next 16:00 UK time
-    next_16_oclock = current_time.replace(hour=hour, minute=minute, second=second, microsecond=0)
-
-    # If the current time is after 16:00, add one day to get the next 16:00
-    if current_time >= next_16_oclock:
-        next_16_oclock += datetime.timedelta(days=1)
-
-    # Calculate the time difference until the next 16:00
-    time_difference = next_16_oclock - current_time
-
-    # Convert the time difference to seconds
-    time_difference_seconds = time_difference.total_seconds()
-
-    # Sleep until the next 16:00 UK time
-    time.sleep(time_difference_seconds)
-
-def initialise_positions():
-    pass
-
-def adjust_positions():
-
-    # Get all positions
-    positions = trading_client.get_all_positions()
-
-    if not positions: initialise_positions()
-
-    for position in positions:
-
-        # acquire a long position if price will rise
-        if get_signal(position) == "long":
-            if position.side.value == "short":
-                print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: Switching {position.symbol} to long')
-                close_order = trading_client.close_position(symbol_or_asset_id=position.symbol)
-                time.sleep(10) # wait for order to fill
-                market_order = trading_client.submit_order(order_data=MarketOrderRequest(symbol=position.symbol, qty=abs(float(position.qty)), side=OrderSide.BUY, time_in_force=TimeInForce.DAY))
-
-        # acquire a short position if price will drop
-        else: 
-            if position.side.value == "long": 
-                print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: Switching {position.symbol} to short')
-                close_order = trading_client.close_position(symbol_or_asset_id=position.symbol)
-                time.sleep(10)
-                market_order = trading_client.submit_order(order_data=MarketOrderRequest(symbol=position.symbol, qty=abs(float(position.qty)), side=OrderSide.SELL, time_in_force=TimeInForce.DAY))
-
-def get_signal(position):
-
-    # Get all models and comps here, and check if funds have changed etc
-    scaler = load(open(f'models/{position.symbol.lower()}_scaler.pkl', 'rb'))
-    model = tf.keras.models.load_model(f'models/{position.symbol.lower()}')
-    current_comp = get_comp(position.symbol)
-    
-    # Get new forecast
-    input_data = np.nan_to_num(yf.download(current_comp, progress=False).iloc[-20:][["Open", "High", "Low", "Close"]].to_numpy())
-    input_data = scaler.transform(input_data)
-    prediction = np.round(model.predict(input_data.reshape(1,*input_data.shape))[0,0])
-
-    return "short" if prediction else "long"
+    return loss, accuracy

@@ -1,26 +1,28 @@
-import requests
-from bs4 import BeautifulSoup
-import pandas as pd
+from urllib.request import urlopen
+import certifi
+import json
 
-# Define the URL to scrape
-url = "https://finviz.com/insidertrading.ashx"
+KEY = "86bd68e097af4c677e33f18b31651fc6"
 
-# Send an HTTP GET request to the URL
-response = requests.get(url)
+def get_jsonparsed_data(url):
+    """
+    Receive the content of ``url``, parse it as JSON and return the object.
 
-# Check if the request was successful (status code 200)
-if response.status_code == 200:
-    # Parse the HTML content of the page using BeautifulSoup
-    soup = BeautifulSoup(response.content, 'html.parser')
+    Parameters
+    ----------
+    url : str
 
-    # Find the table containing the insider trading data
-    table = soup.find('table', {'class': 'body-table'})
+    Returns
+    -------
+    dict
+    """
+    response = urlopen(url, cafile=certifi.where())
+    data = response.read().decode("utf-8")
+    return json.loads(data)
 
-    # Extract data from the table and store it in a pandas DataFrame
-    df = pd.read_html(str(table))[0]
-
-    # Print the DataFrame
-    print(df)
-
-else:
-    print("Failed to retrieve the web page.")
+symbol_list = get_jsonparsed_data(f"https://financialmodelingprep.com/api/v3/financial-statement-symbol-lists?apikey={KEY}")
+print(symbol_list[0])
+breakpoint()
+income_statement = get_jsonparsed_data(f"https://financialmodelingprep.com/api/v3/income-statement/AAPL?apikey={KEY}")
+balance_sheet = get_jsonparsed_data(f"https://financialmodelingprep.com/api/v3/income-statement-as-reported/AAPL?apikey={KEY}")
+cash_flow =  get_jsonparsed_data(f"https://financialmodelingprep.com/api/v3/income-statement/AAPL?apikey={KEY}")
